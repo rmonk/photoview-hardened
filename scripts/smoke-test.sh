@@ -26,15 +26,19 @@ cleanup() {
   if [ $rc -ne 0 ]; then echo "--- logs ---"; $docker logs --tail 60 "$tag" 2>&1 || true; fi
   $docker rm -f "$tag" >/dev/null 2>&1 || true
   $docker volume rm -f "$tag-db" "$tag-cache" >/dev/null 2>&1 || true
+  # Files made by the container's root may not be removable by this user (rootful Docker).
+  $docker run --rm --user 0 --entrypoint rm -v "$media:/out:z" "$image" -rf /out/album >/dev/null 2>&1 || true
   rm -rf "$jar" "$media" 2>/dev/null || true
   exit $rc
 }
 trap cleanup EXIT
 
-# Test media, made with the image's own tools (as root in a throwaway container).
-chmod 0777 "$media"
+# Test media, made with the image's own tools (as root in a throwaway container). The album
+# directory is made here and world-writable, so the HEIC fixture can be added from the host even
+# when the container's root is real root (rootful Docker in CI).
+mkdir -p "$media/album"
+chmod 0777 "$media" "$media/album"
 $docker run --rm --user 0 --entrypoint bash -v "$media:/out:z" "$image" -euc '
-  mkdir -p /out/album
   ffmpeg -loglevel error -f lavfi -i testsrc=size=640x480 -frames:v 1 /out/album/a.jpg
   ffmpeg -loglevel error -f lavfi -i testsrc2=size=320x240 -frames:v 1 /out/album/b.png
   ffmpeg -loglevel error -f lavfi -i testsrc=size=320x240:rate=10 -t 1 -pix_fmt yuv420p /out/album/c.mp4
